@@ -1,0 +1,62 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use File::Basename;
+use Cwd 'abs_path';
+
+# Help message
+my $HELP = <<'END_HELP';
+
+  This script automates the creation of an initial "settings.txt" file for the FluEZ pipeline,
+  supporting either host or viral analysis routes based on a specified genome.
+
+  Usage: fluEZ/create-settings <genome>
+  Where <genome> is the shorthand name for a genome, such as 'mm10' for mouse analysis or 'PR8' for A/Puerto Rico/8/1934(H1N1) strain analysis.
+  The script sets up necessary configuration for the specified genome, preparing the pipeline for execution.
+
+  Note: Ensure you're in the desired working directory where "settings.txt" will be created. If "settings.txt" already exists, the script will abort to prevent overwriting.
+
+END_HELP
+
+
+sub main {
+	# Check for provided argument (genome)
+	my $genome = $ARGV[0] or die "$HELP\n";
+
+	# Determine script directory to find other necessary scripts
+	my $script_dir = dirname(abs_path($0));
+
+	# Check if "settings.txt" already exists in the current directory
+	if (-e "settings.txt") {
+		die "ERROR: 'settings.txt' already exists in the current directory. Please remove or rename it before running this script.\n";
+	}
+
+	# Set directory path for genome data
+	my $genome_data_dir = "/gpfs/data/sequence/references/MILA/$genome/";
+
+	# Create or overwrite "settings.txt" with genome directory setting
+	open my $fh, '>', 'settings.txt' or die "Could not open 'settings.txt': $!\n";
+	print $fh "GENOME_DIR=$genome_data_dir\n";
+	close $fh;
+
+	print "Settings file 'settings.txt' created for genome '$genome'.\n";
+
+	# Get values to make sure they were set properly
+	my $settings_genome = `bash ${script_dir}/scripts/manage-settings.sh "settings.txt" GENOME_DIR`;
+	my $settings_fasta = `bash ${script_dir}/scripts/manage-settings.sh "settings.txt" REF_FASTA`;
+	#my $settings_gtf = `bash ${script_dir}/scripts/manage-settings.sh "settings.txt" REF_GTF`;
+	#my $settings_star = `bash ${script_dir}/scripts/manage-settings.sh "settings.txt" REF_STAR_DIR`;
+
+	# print values
+	print STDERR "\n";
+	print STDERR " REF DIR : $settings_genome \n";
+	print STDERR " REF FASTA : $settings_fasta \n";
+
+}
+
+
+# Main subroutine execution
+main() unless caller;
+
+# end

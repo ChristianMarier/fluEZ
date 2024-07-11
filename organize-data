@@ -1,0 +1,73 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Cwd 'abs_path';
+use File::Basename;
+
+# Help message
+my $HELP = <<"END_HELP";
+
+  This script organizes FASTQ file data within a specified directory by extracting sample names and identifying paired read files.
+
+  Usage: fluEZ/organize-data <fastq_dir>
+  	- <fastq_dir>: Directory containing FASTQ files following the Illumina naming convention.
+
+  The script generates a CSV file named "samples_fastq.csv" in the current directory, detailing each sample and its associated FASTQ files.
+
+  Note: The script checks for the existence of paired reads and organizes data accordingly.
+
+END_HELP
+
+sub main {
+	# Check if a directory has been provided
+	my $fastq_dir = $ARGV[0] or die "$HELP\n";
+
+	# Convert the directory path from relative to absolute
+	$fastq_dir = abs_path($fastq_dir);
+
+	# Check if the directory exists
+	die "Error: Specified directory does not exist: $fastq_dir\n" unless -d $fastq_dir;
+
+	# Find all fastq files in the directory
+	my @fastq_files = `find $fastq_dir -type f -name '*_R1_001.fastq.gz'`;
+	chomp @fastq_files;
+	die "No FASTQ files found in the directory: $fastq_dir\n" unless @fastq_files;
+
+	# Open CSV file for output
+	open my $csv, '>>', 'samples_fastq.csv' or die "Could not open file: $!\n";
+	print $csv "Sample Name,R1 File,R2 File\n";
+
+	# Process each R1 FASTQ file
+	foreach my $r1_file (@fastq_files) {
+		my $r2_file = $r1_file;
+		$r2_file =~ s/_R1_001.fastq.gz/_R2_001.fastq.gz/;
+
+		# Verify R2 file exists
+		unless (-e $r2_file) {
+			$r2_file = "N/A"; # Mark as not available if R2 does not exist
+		}
+
+		# Extract sample name from the R1 filename
+		my $sample_name = basename($r1_file);
+		$sample_name =~ s/_S\d+_L00\d+_R1_001.fastq.gz//;
+
+		# Write to CSV
+		print $csv "$sample_name,$r1_file,$r2_file\n";
+	}
+
+	close $csv;
+
+	# Report on the organized FASTQ files
+	my $total_samples = `cut -d, -f1 samples_fastq.csv | sort | uniq | wc -l` - 1;
+	chomp $total_samples;
+	print "Total unique samples organized: $total_samples\n";
+
+}
+
+# Main subroutine execution
+main() unless caller
+
+
+
+# end

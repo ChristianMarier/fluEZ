@@ -1,0 +1,90 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Cwd 'abs_path';
+use File::Basename;
+
+
+# Help message
+my $HELP = <<"END_HELP";
+
+  Usage: fluEZ/run <route>
+  	- <route>: The pipeline script to run, located in the 'routes' directory.
+  	  Possible routes include 'host' for host analysis and 'viral' for viral analysis.
+
+  This script executes specified pipeline scripts stored in a 'routes' directory,
+  handling different types of analyses by using the appropriate routing scripts.
+  It requires a 'route' argument that corresponds to a specific pipeline script.
+
+  Note: Ensure the 'settings.txt' file with configuration parameters is available in the project directory.
+
+END_HELP
+
+
+sub main {
+
+	my $route = $ARGV[0] or die "$HELP\n";
+	my $code_dir = dirname(abs_path($0));
+	my $project_dir = dirname($code_dir);
+	my $route_script = "$code_dir/routes/$route.sh";
+
+	# Check if the route script exists
+	die "Error: Route script does not exist: $route_script\n" unless -e $route_script;
+
+	# Ensure settings.txt exists
+	die "Error: 'settings.txt' not found in the project directory: $project_dir\n" unless -e "$project_dir/settings.txt";
+
+	# Prepare a directory for sbatch logs
+	my $log_dir = "$project_dir/logs";
+	mkdir $log_dir unless -d $log_dir;
+	chdir $log_dir or die "Error: Could not change to log directory: $log_dir\n";
+
+	# Determine the appropriate sample sheet and clean it
+	my $sample_sheet = get_sample_sheet($route, $project_dir);
+	system("bash", "$code_dir/scripts/modify-csv.sh", $sample_sheet) == 0 or die "Error: Failed to clean sample sheet: $sample_sheet\n";
+
+	# Execute the route
+	if ($route =~ /-groups$/) {
+			run_groups($route_script, $sample_sheet, $project_dir);
+	} else {
+			run_samples($route_script, $sample_sheet, $project_dir);
+	}
+
+}
+
+sub get_sample_sheet {
+	my ($route, $project_dir) = @_;
+	my $sample_sheet = "$project_dir/samples_fastq.csv";
+
+	die "Error: Sample sheet does not exist: $sample_sheet\n" unless -e $sample_sheet;
+	return $sample_sheet;
+
+}
+
+sub run_samples {
+	my ($route_script, $sample_sheet, $project_dir) = @_;
+	open my $fh, '<', $sample_sheet or die "Error: Cannot open sample sheet: $sample_sheet\n";
+	while (my $line = <$fh>) {
+		chomp $line;
+		next if $. == 1; # Skip header
+		my ($sample_name, $r1, $r2) = split /,/, $line;
+		my $code_dir = "$project_dir/fluEZ";
+		my $sbatch_cmd = "sbatch --export=CODE_DIR='$code_dir' -p a100_short --nodes=1 --ntasks=1 --cpus-per-task=9 --mem=72G --time=72:00:00 $route_script $project_dir $sample_name";
+		system($sbatch_cmd) == 0 or warn "Warning: Failed to submit job for sample: $sample_name\n";
+	}
+	close $fh;
+
+}
+
+sub run_groups {
+	my ($route_script, $sample_sheet, $project_dir) = @_;
+	my $sbatch_cmd = "sbatch -p a100_short --nodes=1 --ntasks=1 --cpus-per-task=9 --mem=72G --time=72:00:00 --array=0-$(wc -l < $sample_sheet) $route_script $sample_sheet $project_dir";
+	system($sbatch_cmd) == 0 or die "Error: Failed to submit group job\n";
+
+}
+
+# Main subroutine execution
+main() unless caller;
+
+# end
